@@ -2,6 +2,7 @@
 Main Streamlit application for AgenteRag.
 Provides a chat interface for RAG-powered document Q&A.
 """
+import re
 import streamlit as st
 import os
 import sys
@@ -358,9 +359,31 @@ def main():
                         st.markdown(response)
                         SessionManager.add_message("assistant", response)
                     except Exception as e:
-                        error_msg = f"Error al procesar tu consulta: {e}"
-                        st.error(error_msg)
-                        SessionManager.add_message("assistant", error_msg)
+                        handle_agent_error(e)
+
+
+def _parse_retry_time(error_text: str) -> str | None:
+    """Extract the wait time from a Groq rate-limit error message."""
+    match = re.search(r"Please try again in ([^\.]+)", error_text)
+    return match.group(1).strip() if match else None
+
+
+def handle_agent_error(e: Exception) -> None:
+    """Render a user-friendly error message, with special handling for rate limits."""
+    error_text = str(e)
+    is_rate_limit = "rate_limit_exceeded" in error_text or "429" in error_text
+
+    if is_rate_limit:
+        wait_time = _parse_retry_time(error_text)
+        wait_msg = f"Por favor, vuelve a intentarlo en **{wait_time}**." if wait_time else "Por favor, inténtalo más tarde."
+        st.warning(
+            "⚠️ **Límite de tokens alcanzado**\n\n"
+            "Esta aplicación usa la API gratuita de Groq, que tiene un límite diario de tokens. "
+            f"Has agotado el límite disponible por hoy.\n\n"
+            f"{wait_msg}"
+        )
+    else:
+        st.error(f"Error al procesar tu consulta: {e}")
 
 
 if __name__ == "__main__":
