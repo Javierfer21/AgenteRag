@@ -110,6 +110,7 @@ class PineconeManager:
         chunks: list[dict],
         user_id: str,
         embedding_model: Any,
+        doc_metadata: dict | None = None,
     ) -> None:
         """Embed document chunks and upsert them to Pinecone.
 
@@ -117,6 +118,8 @@ class PineconeManager:
             chunks: List of chunk dicts with keys: text, filename, chunk_index, chunk_id.
             user_id: Pinecone namespace to use for this user's data.
             embedding_model: EmbeddingModel instance for generating vectors.
+            doc_metadata: Optional extra metadata (size_bytes, char_count, etc.)
+                          stored in every chunk so it can be retrieved later.
         """
         if not chunks:
             return
@@ -124,6 +127,7 @@ class PineconeManager:
         texts = [c["text"] for c in chunks]
         vectors = embedding_model.embed_batch(texts)
 
+        extra = doc_metadata or {}
         pinecone_vectors = []
         for chunk, vector in zip(chunks, vectors):
             pinecone_vectors.append({
@@ -133,6 +137,7 @@ class PineconeManager:
                     "text": chunk["text"],
                     "filename": chunk["filename"],
                     "chunk_index": chunk["chunk_index"],
+                    **extra,
                 },
             })
 
@@ -207,6 +212,46 @@ class PineconeManager:
         except Exception as e:
             logger.warning(f"Could not list documents for user '{user_id}': {e}")
             return []
+
+    def get_documents_metadata(self, user_id: str) -> dict[str, dict]:
+        """Return a dict of {filename: metadata} for all indexed documents.
+
+        Aggregates chunk counts and document-level metadata stored inside
+        the vector metadata fields (size_bytes, char_count, etc.).
+
+        Args:
+            user_id: Pinecone namespace identifier.
+
+        Returns:
+            Dict mapping filename -> metadata dict with keys:
+            chunks, size_bytes, char_count, extension.
+        """
+        try:
+            dummy_vector = [0.0] * self.dimension
+            response = self._index.query(
+                vector=dummy_vector,
+                top_k=1000,
+                namespace=user_id,
+                include_metadata=True,
+            )
+            docs: dict[str, dict] = {}
+            for match in response.get("matches", []):
+                meta = match.get("metadata", {})
+                filename = meta.get("filename")
+                if not filename:
+                    continue
+                if filename not in docs:
+                    docs[filename] = {
+                        "chunks": 0,
+                        "extension": filename.rsplit(".", 1)[-1].lower() if "." in filename else "",
+                        "size_bytes": int(meta.get("size_bytes", 0)),
+                        "char_count": int(meta.get("char_count", 0)),
+                    }
+                docs[filename]["chunks"] += 1
+            return docs
+        except Exception as e:
+            logger.warning(f"Could not get document metadata for user '{user_id}': {e}")
+            return {}
 
     def delete_document(self, filename: str, user_id: str) -> None:
         """Delete all vectors associated with a specific document filename.

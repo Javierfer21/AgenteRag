@@ -141,11 +141,15 @@ def process_uploaded_file(uploaded_file, user_id: str) -> dict | None:
         sample_embedding = embedding_model.embed(chunks[0]["text"])
         embedding_dim = len(sample_embedding)
 
-        # --- Step 4: upsert to Pinecone ---
+        # --- Step 4: upsert to Pinecone (including doc metadata for persistence) ---
         pinecone_manager.upsert_chunks(
             chunks=chunks,
             user_id=user_id,
             embedding_model=embedding_model,
+            doc_metadata={
+                "size_bytes": len(file_bytes),
+                "char_count": len(text),
+            },
         )
 
         stats = {
@@ -183,9 +187,36 @@ def process_uploaded_file(uploaded_file, user_id: str) -> dict | None:
 # Main application
 # ---------------------------------------------------------------------------
 
+def load_documents_from_pinecone(user_id: str) -> None:
+    """Populate session documents from Pinecone on first load (after refresh)."""
+    if st.session_state.get("_docs_loaded"):
+        return
+    st.session_state["_docs_loaded"] = True
+
+    pinecone_manager = load_pinecone_manager()
+    if pinecone_manager is None:
+        return
+
+    existing = SessionManager.get_documents()
+    persisted = pinecone_manager.get_documents_metadata(user_id)
+    for filename, meta in persisted.items():
+        if filename not in existing:
+            SessionManager.add_document(filename, meta)
+
+
+def delete_document(filename: str, user_id: str) -> None:
+    """Remove a document from Pinecone and session state."""
+    pinecone_manager = load_pinecone_manager()
+    if pinecone_manager:
+        pinecone_manager.delete_document(filename, user_id)
+    docs = SessionManager.get_documents()
+    docs.pop(filename, None)
+
+
 def main():
     SessionManager.init_session()
     user_id = SessionManager.get_user_id()
+    load_documents_from_pinecone(user_id)
 
     # -----------------------------------------------------------------------
     # Sidebar
@@ -242,13 +273,17 @@ def main():
         reports_by_name = {r["filename"]: r for r in reports}
 
         if documents:
-            for doc_name, meta in documents.items():
+            for doc_name, meta in list(documents.items()):
                 icon = EXTENSION_ICONS.get(meta.get("extension", ""), "📄")
                 size_kb = meta.get("size_bytes", 0) / 1024
                 report = reports_by_name.get(doc_name)
                 with st.expander(f"{icon} {doc_name}", expanded=(doc_name in reports_by_name)):
                     st.caption(f"**Tamaño:** {size_kb:.1f} KB &nbsp;·&nbsp; **Tipo:** {meta.get('extension','?').upper()}")
-                    st.caption(f"**Caracteres:** {meta.get('char_count', 0):,} &nbsp;·&nbsp; **Palabras:** {report['word_count']:,}" if report else f"**Caracteres:** {meta.get('char_count', 0):,}")
+                    if meta.get("char_count"):
+                        char_line = f"**Caracteres:** {meta['char_count']:,}"
+                        if report:
+                            char_line += f" &nbsp;·&nbsp; **Palabras:** {report['word_count']:,}"
+                        st.caption(char_line)
                     st.caption(f"**Chunks:** {meta.get('chunks', '?')} &nbsp;·&nbsp; **Chunk size:** {meta.get('chunk_size', settings.chunk_size)} chars")
                     if report:
                         st.caption(f"**Modelo embedding:** `{report['embedding_model']}`")
@@ -260,6 +295,9 @@ def main():
                         with st.expander("🧮 Vector (8 primeros valores)"):
                             vector_str = ", ".join(f"{v:.4f}" for v in report["sample_vector"])
                             st.code(f"[{vector_str}, ...]", language=None)
+                    if st.button("🗑️ Eliminar", key=f"del_{doc_name}", use_container_width=True):
+                        delete_document(doc_name, user_id)
+                        st.rerun()
         else:
             st.info("No hay documentos indexados aún.")
 

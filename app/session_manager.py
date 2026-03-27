@@ -20,9 +20,17 @@ class SessionManager:
 
     @classmethod
     def init_session(cls) -> None:
-        """Initialize all session state keys with default values."""
+        """Initialize all session state keys with default values.
+
+        The user_id is persisted in the URL query params (?uid=...) so that
+        refreshing the page keeps the same Pinecone namespace and documents.
+        """
         if cls.USER_ID_KEY not in st.session_state:
-            st.session_state[cls.USER_ID_KEY] = str(uuid.uuid4())
+            uid = st.query_params.get("uid")
+            if not uid:
+                uid = str(uuid.uuid4())
+                st.query_params["uid"] = uid
+            st.session_state[cls.USER_ID_KEY] = uid
 
         if cls.MESSAGES_KEY not in st.session_state:
             st.session_state[cls.MESSAGES_KEY] = []
