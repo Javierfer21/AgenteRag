@@ -295,9 +295,24 @@ def main():
                         with st.expander("🧮 Vector (8 primeros valores)"):
                             vector_str = ", ".join(f"{v:.4f}" for v in report["sample_vector"])
                             st.code(f"[{vector_str}, ...]", language=None)
-                    if st.button("🗑️ Eliminar", key=f"del_{doc_name}", use_container_width=True):
-                        delete_document(doc_name, user_id)
-                        st.rerun()
+                    confirming = st.session_state.get(f"confirm_del_{doc_name}", False)
+                    if not confirming:
+                        if st.button("🗑️ Eliminar", key=f"del_{doc_name}", use_container_width=True):
+                            st.session_state[f"confirm_del_{doc_name}"] = True
+                            st.rerun()
+                    else:
+                        st.warning(
+                            f"¿Eliminar **{doc_name}**?\n\n"
+                            "Se borrarán todos sus datos de Pinecone de forma permanente."
+                        )
+                        col_yes, col_no = st.columns(2)
+                        if col_yes.button("✅ Confirmar", key=f"yes_{doc_name}", use_container_width=True):
+                            st.session_state.pop(f"confirm_del_{doc_name}", None)
+                            delete_document(doc_name, user_id)
+                            st.rerun()
+                        if col_no.button("❌ Cancelar", key=f"no_{doc_name}", use_container_width=True):
+                            st.session_state.pop(f"confirm_del_{doc_name}", None)
+                            st.rerun()
         else:
             st.info("No hay documentos indexados aún.")
 
