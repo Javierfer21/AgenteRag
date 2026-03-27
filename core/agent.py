@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
@@ -67,11 +67,11 @@ class RAGAgent:
         self.tools = self._build_tools()
 
         # Initialize LLM and bind tools
-        self.llm = ChatGoogleGenerativeAI(
-            google_api_key=settings.google_api_key,
+        self.llm = ChatGroq(
+            api_key=settings.groq_api_key,
             model=settings.llm_model,
             temperature=settings.llm_temperature,
-            max_output_tokens=settings.llm_max_tokens,
+            max_tokens=settings.llm_max_tokens,
         )
         self.llm_with_tools = self.llm.bind_tools(self.tools)
 

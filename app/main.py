@@ -60,7 +60,7 @@ def load_agent(user_id: str):
     try:
         from core.agent import RAGAgent
         settings = get_settings()
-        if not settings.google_api_key or settings.google_api_key == "tu_clave_google_aqui":
+        if not settings.groq_api_key or settings.groq_api_key == "gsk_tu_clave_aqui":
             return None
         return RAGAgent(settings=settings, user_id=user_id)
     except Exception as e:
@@ -74,7 +74,7 @@ def load_agent(user_id: str):
 
 def check_groq_status() -> bool:
     settings = get_settings()
-    return bool(settings.google_api_key and settings.google_api_key != "tu_clave_google_aqui")
+    return bool(settings.groq_api_key and settings.groq_api_key != "gsk_tu_clave_aqui")
 
 
 def check_pinecone_status() -> bool:
@@ -230,7 +230,7 @@ def main():
         st.subheader("Estado de servicios")
         groq_ok = check_groq_status()
         pinecone_ok = check_pinecone_status()
-        st.markdown("🟢 **Google Gemini** — OK" if groq_ok else "🔴 **Google Gemini** — Sin API key")
+        st.markdown("🟢 **Groq** — OK" if groq_ok else "🔴 **Groq** — Sin API key")
         st.markdown("🟢 **Pinecone** — OK" if pinecone_ok else "🔴 **Pinecone** — Sin API key")
 
         settings = get_settings()
@@ -378,20 +378,15 @@ def _parse_retry_time(error_text: str) -> str | None:
 def handle_agent_error(e: Exception) -> None:
     """Render a user-friendly error message, with special handling for rate limits."""
     error_text = str(e)
-    is_rate_limit = (
-        "rate_limit" in error_text.lower()
-        or "quota" in error_text.lower()
-        or "429" in error_text
-        or "resourceexhausted" in error_text.lower()
-    )
+    is_rate_limit = "rate_limit_exceeded" in error_text or "429" in error_text
 
     if is_rate_limit:
         wait_time = _parse_retry_time(error_text)
-        wait_msg = f"Por favor, vuelve a intentarlo en **{wait_time}**." if wait_time else "Por favor, inténtalo en unos minutos."
+        wait_msg = f"Por favor, vuelve a intentarlo en **{wait_time}**." if wait_time else "Por favor, inténtalo más tarde."
         st.warning(
-            "⚠️ **Límite de uso alcanzado**\n\n"
-            "Esta aplicación usa la API gratuita de Google Gemini, que tiene límites de uso. "
-            f"Has agotado la cuota disponible por el momento.\n\n"
+            "⚠️ **Límite de tokens alcanzado**\n\n"
+            "Esta aplicación usa la API gratuita de Groq, que tiene un límite diario de tokens. "
+            f"Has agotado el límite disponible por hoy.\n\n"
             f"{wait_msg}"
         )
     else:
