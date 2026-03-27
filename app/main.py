@@ -348,6 +348,13 @@ def main():
             st.markdown(user_input)
         SessionManager.add_message("user", user_input)
 
+        if not SessionManager.get_documents():
+            msg = "Para poder responderte necesito que primero subas algún documento. Usa el panel izquierdo para cargar un PDF, Word, Excel, CSV o archivo de texto."
+            with st.chat_message("assistant"):
+                st.warning(msg)
+            SessionManager.add_message("assistant", msg)
+            st.stop()
+
         agent = load_agent(user_id)
 
         if agent is None:
