@@ -254,33 +254,42 @@ class PineconeManager:
             return {}
 
     def delete_document(self, filename: str, user_id: str) -> None:
-        """Delete all vectors associated with a specific document filename.
+        """Delete ALL vectors associated with a specific document filename.
+
+        Uses index.list() to paginate through every vector ID in the namespace
+        (not limited by top_k), then fetches metadata in batches to identify
+        vectors belonging to the target file, and deletes them all.
 
         Args:
             filename: The document filename whose vectors should be removed.
             user_id: Pinecone namespace identifier.
         """
         try:
-            # Retrieve IDs of vectors belonging to this document
-            dummy_vector = [0.0] * self.dimension
-            response = self._index.query(
-                vector=dummy_vector,
-                top_k=1000,
-                namespace=user_id,
-                include_metadata=True,
-            )
-            ids_to_delete = [
-                match["id"]
-                for match in response.get("matches", [])
-                if match.get("metadata", {}).get("filename") == filename
-            ]
+            ids_to_delete: list[str] = []
 
-            if ids_to_delete:
-                self._index.delete(ids=ids_to_delete, namespace=user_id)
-                logger.info(
-                    f"Deleted {len(ids_to_delete)} vectors for '{filename}' "
-                    f"in namespace '{user_id}'."
-                )
+            # list() paginates through ALL vector IDs in the namespace
+            for id_batch in self._index.list(namespace=user_id):
+                if not id_batch:
+                    continue
+                fetch_response = self._index.fetch(ids=id_batch, namespace=user_id)
+                for vec_id, vec_data in fetch_response.vectors.items():
+                    meta = getattr(vec_data, "metadata", {}) or {}
+                    if meta.get("filename") == filename:
+                        ids_to_delete.append(vec_id)
+
+            if not ids_to_delete:
+                logger.info(f"No vectors found for '{filename}' in namespace '{user_id}'.")
+                return
+
+            # Delete in batches of 1000 (Pinecone hard limit per request)
+            for i in range(0, len(ids_to_delete), _UPSERT_BATCH_SIZE):
+                batch = ids_to_delete[i : i + _UPSERT_BATCH_SIZE]
+                self._index.delete(ids=batch, namespace=user_id)
+
+            logger.info(
+                f"Deleted {len(ids_to_delete)} vectors for '{filename}' "
+                f"in namespace '{user_id}'."
+            )
         except Exception as e:
             logger.error(f"Error deleting document '{filename}': {e}")
             raise
