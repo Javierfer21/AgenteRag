@@ -1,0 +1,40 @@
+# Entorno y secretos
+.env
+.env.local
+.env.*.local
+
+# Datos generados en runtime
+data/
+
+# Entorno virtual
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Tests y cobertura
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/secrets.toml
