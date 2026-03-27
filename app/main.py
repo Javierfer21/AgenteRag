@@ -328,6 +328,13 @@ def main():
     # Main area: full-width chat
     # -----------------------------------------------------------------------
     st.title("💬 Chat con tus documentos")
+    st.caption(
+        "Sube tus documentos desde el panel izquierdo (PDF, Word, Excel, CSV o texto) "
+        "y hazle preguntas en lenguaje natural. El agente buscará automáticamente "
+        "la información más relevante en tu contenido y te dará una respuesta precisa, "
+        "sin acceso a internet y sin salirse de lo que hay en tus archivos."
+    )
+    st.markdown("---")
 
     messages = SessionManager.get_messages()
     for msg in messages:
