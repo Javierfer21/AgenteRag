@@ -333,6 +333,7 @@ def main():
         "y hazle preguntas en lenguaje natural. El agente buscará automáticamente "
         "la información más relevante en tu contenido y te dará una respuesta precisa, "
         "sin acceso a internet y sin salirse de lo que hay en tus archivos."
+        "El agente está utilizando una api gratuita de Groq, ten paciencia si tarda en responder"
     )
     st.markdown("---")
 
