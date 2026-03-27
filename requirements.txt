@@ -1,6 +1,6 @@
 streamlit>=1.32.0
 langchain>=0.1.0
-langchain-groq>=0.1.0
+langchain-google-genai>=1.0.0
 langgraph>=0.0.40
 langchain-community>=0.0.20
 pinecone>=3.0.0

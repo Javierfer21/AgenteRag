@@ -10,9 +10,9 @@ from pydantic import Field
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
-    # Groq LLM settings
-    groq_api_key: str = Field(default="", env="GROQ_API_KEY")
-    llm_model: str = Field(default="llama-3.3-70b-versatile", env="LLM_MODEL")
+    # Google Gemini LLM settings
+    google_api_key: str = Field(default="", env="GOOGLE_API_KEY")
+    llm_model: str = Field(default="gemini-1.5-flash", env="LLM_MODEL")
     llm_temperature: float = Field(default=0.1, env="LLM_TEMPERATURE")
     llm_max_tokens: int = Field(default=4096, env="LLM_MAX_TOKENS")
 
