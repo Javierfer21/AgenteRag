@@ -32,7 +32,6 @@ st.set_page_config(
 
 @st.cache_resource(show_spinner="Cargando modelo de embeddings...")
 def load_embedding_model():
-    """Load and cache the SentenceTransformer embedding model."""
     try:
         from vectorstore.embeddings import EmbeddingModel
         settings = get_settings()
@@ -44,7 +43,6 @@ def load_embedding_model():
 
 @st.cache_resource(show_spinner="Conectando a Pinecone...")
 def load_pinecone_manager():
-    """Load and cache the Pinecone manager."""
     try:
         from vectorstore.pinecone_manager import PineconeManager
         settings = get_settings()
@@ -58,7 +56,6 @@ def load_pinecone_manager():
 
 @st.cache_resource(show_spinner="Inicializando agente...")
 def load_agent(user_id: str):
-    """Load and cache the RAG agent for the given user."""
     try:
         from core.agent import RAGAgent
         settings = get_settings()
@@ -90,22 +87,27 @@ def check_pinecone_status() -> bool:
 
 SUPPORTED_EXTENSIONS = ["pdf", "docx", "txt", "csv", "xlsx", "xls", "md", "log"]
 
+EXTENSION_ICONS = {
+    "pdf": "📕", "docx": "📘", "doc": "📘",
+    "txt": "📄", "md": "📄", "log": "📄",
+    "csv": "📊", "xlsx": "📊", "xls": "📊", "xlsm": "📊",
+}
 
-def process_uploaded_file(uploaded_file, user_id: str) -> bool:
+
+def process_uploaded_file(uploaded_file, user_id: str) -> dict | None:
     """Process an uploaded file, chunk it and upsert to Pinecone.
 
-    Returns True on success, False on failure.
+    Returns a dict with processing stats on success, None on failure.
     """
     embedding_model = load_embedding_model()
     pinecone_manager = load_pinecone_manager()
 
     if embedding_model is None:
         st.error("El modelo de embeddings no está disponible.")
-        return False
-
+        return None
     if pinecone_manager is None:
         st.error("Pinecone no está disponible. Verifica tu API key.")
-        return False
+        return None
 
     try:
         file_bytes = uploaded_file.read()
@@ -115,13 +117,15 @@ def process_uploaded_file(uploaded_file, user_id: str) -> bool:
         processor = get_processor(extension)
         if processor is None:
             st.error(f"Tipo de archivo no soportado: .{extension}")
-            return False
+            return None
 
+        # --- Step 1: extract text ---
         text = processor.process(file_bytes)
         if not text or not text.strip():
             st.warning(f"No se pudo extraer texto de {filename}.")
-            return False
+            return None
 
+        # --- Step 2: chunk ---
         settings = get_settings()
         chunks = chunk_document(
             text=text,
@@ -129,29 +133,92 @@ def process_uploaded_file(uploaded_file, user_id: str) -> bool:
             chunk_size=settings.chunk_size,
             chunk_overlap=settings.chunk_overlap,
         )
-
         if not chunks:
             st.warning(f"No se generaron chunks para {filename}.")
-            return False
+            return None
 
+        # --- Step 3: embed a sample to get dimension info ---
+        sample_embedding = embedding_model.embed(chunks[0]["text"])
+        embedding_dim = len(sample_embedding)
+
+        # --- Step 4: upsert to Pinecone ---
         pinecone_manager.upsert_chunks(
             chunks=chunks,
             user_id=user_id,
             embedding_model=embedding_model,
         )
 
+        stats = {
+            "filename": filename,
+            "extension": extension,
+            "size_bytes": len(file_bytes),
+            "char_count": len(text),
+            "word_count": len(text.split()),
+            "chunk_count": len(chunks),
+            "chunk_size": settings.chunk_size,
+            "chunk_overlap": settings.chunk_overlap,
+            "embedding_model": settings.embedding_model,
+            "embedding_dim": embedding_dim,
+            "sample_chunks": [c["text"] for c in chunks[:3]],
+            "sample_vector": sample_embedding[:8],
+        }
+
         SessionManager.add_document(filename, {
             "chunks": len(chunks),
             "extension": extension,
             "size_bytes": len(file_bytes),
+            "char_count": len(text),
         })
 
-        st.success(f"'{filename}' indexado correctamente ({len(chunks)} chunks).")
-        return True
+        return stats
 
     except Exception as e:
         st.error(f"Error procesando '{uploaded_file.name}': {e}")
-        return False
+        return None
+
+
+def render_processing_report(stats: dict):
+    """Render a detailed processing report after a file is indexed."""
+    icon = EXTENSION_ICONS.get(stats["extension"], "📄")
+    size_kb = stats["size_bytes"] / 1024
+
+    st.success(f"{icon} **{stats['filename']}** indexado correctamente")
+
+    # ---- Metrics row ----
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Tamaño", f"{size_kb:.1f} KB")
+    col2.metric("Caracteres", f"{stats['char_count']:,}")
+    col3.metric("Palabras", f"{stats['word_count']:,}")
+    col4.metric("Chunks generados", stats["chunk_count"])
+
+    # ---- Chunking & Embedding config ----
+    with st.expander("⚙️ Configuración de chunking y embeddings", expanded=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Chunking**")
+            st.markdown(f"- Tamaño de chunk: `{stats['chunk_size']}` caracteres")
+            st.markdown(f"- Solapamiento: `{stats['chunk_overlap']}` caracteres")
+            st.markdown(f"- Total chunks creados: `{stats['chunk_count']}`")
+        with c2:
+            st.markdown("**Embeddings**")
+            st.markdown(f"- Modelo: `{stats['embedding_model']}`")
+            st.markdown(f"- Dimensión del vector: `{stats['embedding_dim']}`")
+            st.markdown(f"- Vectores subidos a Pinecone: `{stats['chunk_count']}`")
+
+    # ---- Sample chunks ----
+    with st.expander("🔍 Preview de chunks indexados"):
+        for i, chunk_text in enumerate(stats["sample_chunks"], 1):
+            st.markdown(f"**Chunk {i}**")
+            st.code(chunk_text[:400] + ("..." if len(chunk_text) > 400 else ""), language=None)
+
+    # ---- Sample embedding vector ----
+    with st.expander("🧮 Muestra del vector de embedding (primeros 8 valores)"):
+        vector_str = ", ".join(f"{v:.6f}" for v in stats["sample_vector"])
+        st.code(f"[{vector_str}, ...]", language=None)
+        st.caption(
+            f"Cada chunk se representa como un vector de {stats['embedding_dim']} dimensiones "
+            f"en el espacio semántico del modelo {stats['embedding_model']}."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +226,6 @@ def process_uploaded_file(uploaded_file, user_id: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def main():
-    # Initialize session state
     SessionManager.init_session()
     user_id = SessionManager.get_user_id()
 
@@ -170,20 +236,19 @@ def main():
         st.title("🤖 AgenteRag")
         st.markdown("---")
 
-        # API status indicators
+        # API status
         st.subheader("Estado de servicios")
         groq_ok = check_groq_status()
         pinecone_ok = check_pinecone_status()
+        st.markdown("🟢 **Groq** — OK" if groq_ok else "🔴 **Groq** — Sin API key")
+        st.markdown("🟢 **Pinecone** — OK" if pinecone_ok else "🔴 **Pinecone** — Sin API key")
 
-        if groq_ok:
-            st.markdown("🟢 **Groq** — OK")
-        else:
-            st.markdown("🔴 **Groq** — Sin API key")
-
-        if pinecone_ok:
-            st.markdown("🟢 **Pinecone** — OK")
-        else:
-            st.markdown("🔴 **Pinecone** — Sin API key")
+        settings = get_settings()
+        st.markdown("---")
+        st.subheader("Configuración activa")
+        st.caption(f"Modelo LLM: `{settings.llm_model}`")
+        st.caption(f"Embeddings: `{settings.embedding_model}`")
+        st.caption(f"Chunk size: `{settings.chunk_size}` | Overlap: `{settings.chunk_overlap}`")
 
         st.markdown("---")
 
@@ -201,8 +266,13 @@ def main():
                 filename = uploaded_file.name
                 existing_docs = SessionManager.get_documents()
                 if filename not in existing_docs:
+                    # Store pending file in session to render report in main area
+                    if "pending_reports" not in st.session_state:
+                        st.session_state.pending_reports = []
                     with st.spinner(f"Procesando {filename}..."):
-                        process_uploaded_file(uploaded_file, user_id)
+                        stats = process_uploaded_file(uploaded_file, user_id)
+                        if stats:
+                            st.session_state.pending_reports.append(stats)
 
         st.markdown("---")
 
@@ -211,44 +281,54 @@ def main():
         documents = SessionManager.get_documents()
         if documents:
             for doc_name, meta in documents.items():
+                icon = EXTENSION_ICONS.get(meta.get("extension", ""), "📄")
+                size_kb = meta.get("size_bytes", 0) / 1024
+                chars = meta.get("char_count", 0)
                 st.markdown(
-                    f"📄 **{doc_name}**  \n"
-                    f"  Chunks: {meta.get('chunks', '?')} | "
-                    f"Tipo: {meta.get('extension', '?').upper()}"
+                    f"{icon} **{doc_name}**  \n"
+                    f"  `{meta.get('chunks', '?')}` chunks &nbsp;·&nbsp; "
+                    f"`{size_kb:.1f}` KB &nbsp;·&nbsp; "
+                    f"`{chars:,}` chars"
                 )
         else:
             st.info("No hay documentos indexados aún.")
 
         st.markdown("---")
-        st.caption(f"Session ID: `{user_id[:8]}...`")
+        st.caption(f"Session: `{user_id[:8]}...`")
 
     # -----------------------------------------------------------------------
-    # Main chat interface
+    # Main area: processing reports + chat
     # -----------------------------------------------------------------------
+
+    # Render pending processing reports at the top
+    if st.session_state.get("pending_reports"):
+        st.header("📋 Informe de indexación")
+        for stats in st.session_state.pending_reports:
+            render_processing_report(stats)
+            st.markdown("---")
+        st.session_state.pending_reports = []
+
+    # Chat interface
     st.title("💬 Chat con tus documentos")
 
-    # Display chat history
     messages = SessionManager.get_messages()
     for msg in messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # Chat input
     user_input = st.chat_input("Escribe tu pregunta aquí...")
 
     if user_input:
-        # Show user message immediately
         with st.chat_message("user"):
             st.markdown(user_input)
         SessionManager.add_message("user", user_input)
 
-        # Load agent and get response
         agent = load_agent(user_id)
 
         if agent is None:
             error_msg = (
-                "El agente no está disponible. Verifica que la variable "
-                "`GROQ_API_KEY` esté configurada en tu archivo `.env`."
+                "El agente no está disponible. Verifica que `GROQ_API_KEY` "
+                "esté configurada en tu archivo `.env`."
             )
             with st.chat_message("assistant"):
                 st.error(error_msg)
