@@ -177,48 +177,46 @@ def process_uploaded_file(uploaded_file, user_id: str) -> dict | None:
         return None
 
 
-def render_processing_report(stats: dict):
-    """Render a detailed processing report after a file is indexed."""
+def render_processing_report(container, stats: dict):
+    """Render a detailed processing report in the given container (right panel)."""
     icon = EXTENSION_ICONS.get(stats["extension"], "📄")
     size_kb = stats["size_bytes"] / 1024
 
-    st.success(f"{icon} **{stats['filename']}** indexado correctamente")
+    container.success(f"{icon} **{stats['filename']}** indexado")
 
-    # ---- Metrics row ----
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Tamaño", f"{size_kb:.1f} KB")
-    col2.metric("Caracteres", f"{stats['char_count']:,}")
-    col3.metric("Palabras", f"{stats['word_count']:,}")
-    col4.metric("Chunks generados", stats["chunk_count"])
+    # ---- Metrics ----
+    c1, c2 = container.columns(2)
+    c1.metric("Tamaño", f"{size_kb:.1f} KB")
+    c2.metric("Palabras", f"{stats['word_count']:,}")
+    c1.metric("Caracteres", f"{stats['char_count']:,}")
+    c2.metric("Chunks", stats["chunk_count"])
 
-    # ---- Chunking & Embedding config ----
-    with st.expander("⚙️ Configuración de chunking y embeddings", expanded=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**Chunking**")
-            st.markdown(f"- Tamaño de chunk: `{stats['chunk_size']}` caracteres")
-            st.markdown(f"- Solapamiento: `{stats['chunk_overlap']}` caracteres")
-            st.markdown(f"- Total chunks creados: `{stats['chunk_count']}`")
-        with c2:
-            st.markdown("**Embeddings**")
-            st.markdown(f"- Modelo: `{stats['embedding_model']}`")
-            st.markdown(f"- Dimensión del vector: `{stats['embedding_dim']}`")
-            st.markdown(f"- Vectores subidos a Pinecone: `{stats['chunk_count']}`")
+    # ---- Chunking config ----
+    with container.expander("⚙️ Chunking", expanded=True):
+        container.caption(f"Tamaño: `{stats['chunk_size']}` chars")
+        container.caption(f"Solapamiento: `{stats['chunk_overlap']}` chars")
+        container.caption(f"Chunks generados: `{stats['chunk_count']}`")
+
+    # ---- Embedding config ----
+    with container.expander("🧠 Embeddings", expanded=True):
+        container.caption(f"Modelo: `{stats['embedding_model']}`")
+        container.caption(f"Dimensión: `{stats['embedding_dim']}D`")
+        container.caption(f"Vectores en Pinecone: `{stats['chunk_count']}`")
 
     # ---- Sample chunks ----
-    with st.expander("🔍 Preview de chunks indexados"):
+    with container.expander("🔍 Preview de chunks"):
         for i, chunk_text in enumerate(stats["sample_chunks"], 1):
-            st.markdown(f"**Chunk {i}**")
-            st.code(chunk_text[:400] + ("..." if len(chunk_text) > 400 else ""), language=None)
+            container.markdown(f"**Chunk {i}**")
+            container.code(
+                chunk_text[:300] + ("..." if len(chunk_text) > 300 else ""),
+                language=None,
+            )
 
-    # ---- Sample embedding vector ----
-    with st.expander("🧮 Muestra del vector de embedding (primeros 8 valores)"):
-        vector_str = ", ".join(f"{v:.6f}" for v in stats["sample_vector"])
-        st.code(f"[{vector_str}, ...]", language=None)
-        st.caption(
-            f"Cada chunk se representa como un vector de {stats['embedding_dim']} dimensiones "
-            f"en el espacio semántico del modelo {stats['embedding_model']}."
-        )
+    # ---- Sample vector ----
+    with container.expander("🧮 Vector de embedding"):
+        vector_str = ", ".join(f"{v:.5f}" for v in stats["sample_vector"])
+        container.code(f"[{vector_str}, ...]", language=None)
+        container.caption(f"Vector de {stats['embedding_dim']} dimensiones")
 
 
 # ---------------------------------------------------------------------------
@@ -297,53 +295,70 @@ def main():
         st.caption(f"Session: `{user_id[:8]}...`")
 
     # -----------------------------------------------------------------------
-    # Main area: processing reports + chat
+    # Main area: chat (left) + indexing report panel (right)
     # -----------------------------------------------------------------------
+    col_chat, col_report = st.columns([3, 1], gap="large")
 
-    # Render pending processing reports at the top
-    if st.session_state.get("pending_reports"):
-        st.header("📋 Informe de indexación")
-        for stats in st.session_state.pending_reports:
-            render_processing_report(stats)
-            st.markdown("---")
-        st.session_state.pending_reports = []
+    # ---- Right panel: indexing report ----
+    with col_report:
+        st.markdown("### 📋 Indexación")
+        reports = st.session_state.get("pending_reports", [])
+        if reports:
+            for stats in reports:
+                render_processing_report(col_report, stats)
+                st.markdown("---")
+            st.session_state.pending_reports = []
+        elif SessionManager.get_documents():
+            # Show a compact summary of already-indexed docs when no new upload
+            st.caption("Documentos en sesión:")
+            for doc_name, meta in SessionManager.get_documents().items():
+                icon = EXTENSION_ICONS.get(meta.get("extension", ""), "📄")
+                st.markdown(
+                    f"{icon} **{doc_name}**  \n"
+                    f"`{meta.get('chunks','?')}` chunks · "
+                    f"`{meta.get('size_bytes',0)/1024:.1f}` KB"
+                )
+        else:
+            st.caption("Sube un documento para ver el informe de indexación aquí.")
 
-    # Chat interface
-    st.title("💬 Chat con tus documentos")
+    # ---- Left: chat interface ----
+    with col_chat:
+        st.title("💬 Chat con tus documentos")
 
-    messages = SessionManager.get_messages()
-    for msg in messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+        messages = SessionManager.get_messages()
+        for msg in messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
 
     user_input = st.chat_input("Escribe tu pregunta aquí...")
 
     if user_input:
-        with st.chat_message("user"):
-            st.markdown(user_input)
-        SessionManager.add_message("user", user_input)
+        with col_chat:
+            with st.chat_message("user"):
+                st.markdown(user_input)
+            SessionManager.add_message("user", user_input)
 
-        agent = load_agent(user_id)
+            agent = load_agent(user_id)
 
-        if agent is None:
-            error_msg = (
-                "El agente no está disponible. Verifica que `GROQ_API_KEY` "
-                "esté configurada en tu archivo `.env`."
-            )
-            with st.chat_message("assistant"):
-                st.error(error_msg)
-            SessionManager.add_message("assistant", error_msg)
-        else:
-            with st.chat_message("assistant"):
-                with st.spinner("Pensando..."):
-                    try:
-                        response = agent.chat(user_input)
-                        st.markdown(response)
-                        SessionManager.add_message("assistant", response)
-                    except Exception as e:
-                        error_msg = f"Error al procesar tu consulta: {e}"
-                        st.error(error_msg)
-                        SessionManager.add_message("assistant", error_msg)
+            if agent is None:
+                error_msg = (
+                    "El agente no está disponible. Verifica que `GROQ_API_KEY` "
+                    "esté configurada en tu archivo `.env`."
+                )
+                with st.chat_message("assistant"):
+                    st.error(error_msg)
+                SessionManager.add_message("assistant", error_msg)
+            else:
+                with st.chat_message("assistant"):
+                    with st.spinner("Pensando..."):
+                        try:
+                            response = agent.chat(user_input)
+                            st.markdown(response)
+                            SessionManager.add_message("assistant", response)
+                        except Exception as e:
+                            error_msg = f"Error al procesar tu consulta: {e}"
+                            st.error(error_msg)
+                            SessionManager.add_message("assistant", error_msg)
 
 
 if __name__ == "__main__":
