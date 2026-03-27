@@ -40,6 +40,7 @@ def get_all_tools(
             embedding_model=embedding_model,
         ),
         make_analyze_csv_tool(
+            user_id=user_id,
             pinecone_manager=pinecone_manager,
             embedding_model=embedding_model,
         ),

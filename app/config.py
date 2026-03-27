@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     # Groq LLM settings
     groq_api_key: str = Field(default="", env="GROQ_API_KEY")
-    llm_model: str = Field(default="llama-3.3-70b-versatile", env="LLM_MODEL")
+    llm_model: str = Field(default="llama3-groq-70b-8192-tool-use-preview", env="LLM_MODEL")
     llm_temperature: float = Field(default=0.1, env="LLM_TEMPERATURE")
     llm_max_tokens: int = Field(default=4096, env="LLM_MAX_TOKENS")
 

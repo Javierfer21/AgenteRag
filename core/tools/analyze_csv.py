@@ -10,21 +10,12 @@ from langchain_core.tools import tool
 
 
 def make_analyze_csv_tool(
+    user_id: str,
     pinecone_manager: Optional[Any],
     embedding_model: Optional[Any],
 ):
-    """Factory that creates an analyze-CSV tool with injected dependencies.
-
-    Args:
-        pinecone_manager: PineconeManager instance.
-        embedding_model: EmbeddingModel instance.
-
-    Returns:
-        A LangChain @tool callable.
-    """
-
     @tool
-    def analizar_datos_csv(document_name: str, user_id: str) -> str:
+    def analizar_datos_csv(document_name: str) -> str:
         """Analiza los datos de un archivo CSV o Excel indexado.
 
         Recupera el contenido del archivo desde Pinecone y calcula estadísticas
@@ -33,7 +24,6 @@ def make_analyze_csv_tool(
 
         Args:
             document_name: Nombre del archivo CSV o Excel (ej. 'datos.csv').
-            user_id: Identificador del usuario/namespace de Pinecone.
 
         Returns:
             Informe de estadísticas del dataset en texto plano.
@@ -47,7 +37,6 @@ def make_analyze_csv_tool(
         try:
             import pandas as pd
 
-            # Retrieve chunks for the document
             results = pinecone_manager.search(
                 query=document_name,
                 user_id=user_id,
@@ -64,12 +53,10 @@ def make_analyze_csv_tool(
             if not doc_chunks:
                 doc_chunks = results
 
-            # Sort by chunk_index
             doc_chunks.sort(
                 key=lambda r: r.get("metadata", {}).get("chunk_index", 0)
             )
 
-            # Collect raw CSV text stored in metadata
             csv_parts = [
                 r.get("metadata", {}).get("text", "")
                 for r in doc_chunks
@@ -81,7 +68,6 @@ def make_analyze_csv_tool(
 
             combined_text = "\n".join(csv_parts)
 
-            # Try to parse as CSV using pandas
             try:
                 df = pd.read_csv(io.StringIO(combined_text))
             except Exception:
@@ -90,7 +76,6 @@ def make_analyze_csv_tool(
                     f"Contenido recuperado:\n{combined_text[:500]}"
                 )
 
-            # Build statistics report
             lines = [
                 f"Análisis de '{document_name}'",
                 f"{'=' * 40}",
