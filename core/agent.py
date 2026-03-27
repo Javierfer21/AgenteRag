@@ -187,7 +187,7 @@ class RAGAgent:
 
         except Exception as e:
             logger.error(f"Agent error: {e}")
-            response_text = f"Lo siento, ocurrió un error al procesar tu consulta: {e}"
+            raise
 
         # Persist assistant response
         self.memory.save_message("assistant", response_text)
